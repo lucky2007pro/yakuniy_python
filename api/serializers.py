@@ -46,6 +46,7 @@ class ReaderSerializer(serializers.ModelSerializer):
 
 class ReaderRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
+    card_id = serializers.CharField(required=False, allow_blank=True)
     card_image_base64 = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
@@ -55,6 +56,9 @@ class ReaderRegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password')
         image_b64 = validated_data.pop('card_image_base64', '')
+        # Agar card_id berilmagan bo'lsa, avtomatik UUID generatsiya qilish
+        if not validated_data.get('card_id'):
+            validated_data['card_id'] = f"LIB{uuid.uuid4().hex[:8].upper()}"
         reader = Reader(**validated_data)
         reader.password_hash = make_password(password)
         reader.is_approved = False
@@ -72,16 +76,29 @@ class ReaderRegisterSerializer(serializers.ModelSerializer):
 
 
 class ReaderLoginSerializer(serializers.Serializer):
-    card_id = serializers.CharField()
+    card_id = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        card_id = attrs.get('card_id')
+        card_id = attrs.get('card_id', '')
+        phone = attrs.get('phone', '')
         password = attrs.get('password')
-        try:
-            reader = Reader.objects.get(card_id=card_id)
-        except Reader.DoesNotExist as exc:
-            raise serializers.ValidationError({'card_id': 'Reader not found.'}) from exc
+
+        reader = None
+        if card_id:
+            try:
+                reader = Reader.objects.get(card_id=card_id)
+            except Reader.DoesNotExist:
+                pass
+        if not reader and phone:
+            try:
+                reader = Reader.objects.get(phone=phone)
+            except Reader.DoesNotExist:
+                pass
+
+        if not reader:
+            raise serializers.ValidationError({'detail': 'Reader not found.'})
 
         if not reader.is_active:
             raise serializers.ValidationError({'detail': 'Account is inactive.'})
