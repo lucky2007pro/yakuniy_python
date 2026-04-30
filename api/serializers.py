@@ -154,7 +154,7 @@ class ReservationSerializer(serializers.ModelSerializer):
         if not reader.is_approved:
             raise serializers.ValidationError({'detail': 'Reader account is not approved by admin yet.'})
 
-        if book and Issue.objects.filter(book=book).exists():
+        if book and Issue.objects.filter(book=book, return_date__gte=timezone.now().date()).exists():
             raise serializers.ValidationError({'book': 'This book is currently issued and cannot be reserved.'})
         if book and Reservation.objects.filter(book=book).exists():
             raise serializers.ValidationError({'book': 'This book is already reserved.'})

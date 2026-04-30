@@ -18,8 +18,24 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse, HttpResponse
+
+
+def health_check(request):
+    return JsonResponse({
+        'status': 'ok',
+        'service': 'Yakuniy library API',
+        'api': '/api/',
+    })
+
+
+def empty_response(request):
+    return HttpResponse(status=204)
 
 urlpatterns = [
+    path('', health_check),
+    path('favicon.ico', empty_response),
+    path('robots.txt', empty_response),
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
 ]

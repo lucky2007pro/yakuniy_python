@@ -100,7 +100,14 @@ class ReaderViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='login')
     def login(self, request):
         serializer = ReaderLoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'detail': 'Login failed. Check phone/card ID and password.',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         reader = serializer.validated_data['reader']
 
         reader.session_token = secrets.token_urlsafe(32)
