@@ -36,6 +36,7 @@ urlpatterns = [
     path('', health_check),
     path('favicon.ico', empty_response),
     path('robots.txt', empty_response),
+    path('.well-known/security.txt', empty_response),
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
 ]
