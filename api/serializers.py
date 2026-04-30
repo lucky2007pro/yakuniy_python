@@ -41,7 +41,7 @@ class ReaderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reader
         fields = ['id', 'fullname', 'phone', 'card_id', 'card_image', 'is_approved', 'is_active', 'created_at']
-        read_only_fields = ['is_approved', 'is_active', 'created_at']
+        read_only_fields = ['created_at']
 
 
 class ReaderRegisterSerializer(serializers.ModelSerializer):

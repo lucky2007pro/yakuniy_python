@@ -116,6 +116,9 @@ class ReaderViewSet(viewsets.ModelViewSet):
             {
                 'token': reader.session_token,
                 'reader': ReaderSerializer(reader).data,
+                'id': reader.id,
+                'fullname': reader.fullname,
+                'card_id': reader.card_id,
                 'is_approved': reader.is_approved,
             }
         )
