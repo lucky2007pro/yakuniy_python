@@ -5,7 +5,7 @@ import uuid
 from django.core.files.base import ContentFile
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny
 from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard
 from .serializers import (
     LibrarySerializer,
@@ -65,9 +65,7 @@ class ReaderViewSet(viewsets.ModelViewSet):
     serializer_class = ReaderSerializer
 
     def get_permissions(self):
-        if self.action in ['register', 'login', 'me', 'library_cards']:
-            return [AllowAny()]
-        return [IsAdminUser()]
+        return [AllowAny()]
 
     def _resolve_reader_by_token(self, request):
         token = request.headers.get('X-Reader-Token')
