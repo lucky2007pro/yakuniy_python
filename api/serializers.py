@@ -6,7 +6,8 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import serializers
-from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard
+from django.db.models import Avg, Count
+from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating
 
 class LibrarySerializer(serializers.ModelSerializer):
     class Meta:
@@ -29,6 +30,9 @@ class BookSerializer(serializers.ModelSerializer):
     library_latitude = serializers.FloatField(source='library.latitude', read_only=True, default=0)
     library_longitude = serializers.FloatField(source='library.longitude', read_only=True, default=0)
     section_name = serializers.CharField(source='section.name', read_only=True, default='')
+    average_rating = serializers.SerializerMethodField()
+    ratings_count = serializers.SerializerMethodField()
+    is_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Book
@@ -36,6 +40,21 @@ class BookSerializer(serializers.ModelSerializer):
 
     def get_author_name(self, obj):
         return str(obj.author) if obj.author else ''
+
+    def get_average_rating(self, obj):
+        agg = obj.ratings.aggregate(avg=Avg('rating'))
+        return round(agg['avg'], 2) if agg['avg'] is not None else 0.0
+
+    def get_ratings_count(self, obj):
+        return obj.ratings.count()
+
+    def get_is_available(self, obj):
+        from django.utils import timezone as tz
+        if Issue.objects.filter(book=obj, return_date__gte=tz.now().date()).exists():
+            return False
+        if Reservation.objects.filter(book=obj).exists():
+            return False
+        return True
 
 class ReaderSerializer(serializers.ModelSerializer):
     class Meta:
@@ -193,3 +212,18 @@ class ReaderLibraryCardSerializer(serializers.ModelSerializer):
         model = ReaderLibraryCard
         fields = ['id', 'reader', 'library', 'library_name', 'card_image', 'created_at', 'updated_at']
         read_only_fields = ['id', 'reader', 'library_name', 'created_at', 'updated_at']
+
+
+class BookRatingSerializer(serializers.ModelSerializer):
+    reader_name = serializers.CharField(source='reader.fullname', read_only=True)
+    book_title = serializers.CharField(source='book.title', read_only=True)
+
+    class Meta:
+        model = BookRating
+        fields = ['id', 'reader', 'reader_name', 'book', 'book_title', 'rating', 'review', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'reader', 'reader_name', 'book_title', 'created_at', 'updated_at']
+
+    def validate_rating(self, value):
+        if value < 1 or value > 5:
+            raise serializers.ValidationError('Rating must be between 1 and 5.')
+        return value

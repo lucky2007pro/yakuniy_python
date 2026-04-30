@@ -34,6 +34,9 @@ class Book(models.Model):
     isbn = models.CharField(max_length=13, blank=True, null=True)
     cover_image = models.ImageField(upload_to='book_covers/', blank=True, null=True)
     ebook_file = models.FileField(upload_to='ebooks/', blank=True, null=True)
+    view_count = models.PositiveIntegerField(default=0)
+    reservation_count = models.PositiveIntegerField(default=0)
+    issue_count = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return self.title
@@ -92,3 +95,20 @@ class ReaderLibraryCard(models.Model):
 
     def __str__(self):
         return f"{self.reader.fullname} - {self.library.name}"
+
+
+class BookRating(models.Model):
+    reader = models.ForeignKey(Reader, on_delete=models.CASCADE, related_name='ratings')
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='ratings')
+    rating = models.PositiveSmallIntegerField()  # 1-5
+    review = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['reader', 'book'], name='unique_reader_book_rating')
+        ]
+
+    def __str__(self):
+        return f"{self.reader.fullname} → {self.book.title}: {self.rating}★"

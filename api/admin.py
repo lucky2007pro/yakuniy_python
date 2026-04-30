@@ -1,7 +1,7 @@
 from django.contrib import admin
-from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard
+from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating
 
-admin.site.register([Library, Section, Author, Book, Issue, Reservation, ReaderLibraryCard])
+admin.site.register([Library, Section, Author, Book, Issue, Reservation, ReaderLibraryCard, BookRating])
 
 
 @admin.register(Reader)

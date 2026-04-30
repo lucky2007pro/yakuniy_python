@@ -127,6 +127,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Desktop admin token (matches password used in WinForms AdminForm)
+ADMIN_API_TOKEN = os.environ.get('ADMIN_API_TOKEN', 'TATU2026')
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 if DEBUG:
