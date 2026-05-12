@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating
 
-admin.site.register([Library, Section, Author, Book, Issue, Reservation, ReaderLibraryCard, BookRating])
+admin.site.register([Library, Section, Author, Book, Issue, Reservation])
 
 
 @admin.register(Reader)
@@ -9,3 +9,37 @@ class ReaderAdmin(admin.ModelAdmin):
     list_display = ('id', 'fullname', 'phone', 'card_id', 'is_approved', 'is_active', 'created_at')
     list_filter = ('is_approved', 'is_active', 'created_at')
     search_fields = ('fullname', 'phone', 'card_id')
+    actions = ['approve_readers', 'disapprove_readers']
+
+    @admin.action(description='Tanlangan o\'quvchilarni tasdiqlash')
+    def approve_readers(self, request, queryset):
+        queryset.update(is_approved=True)
+
+    @admin.action(description='Tanlangan o\'quvchilarning tasdig\'ini bekor qilish')
+    def disapprove_readers(self, request, queryset):
+        queryset.update(is_approved=False)
+
+
+@admin.register(ReaderLibraryCard)
+class ReaderLibraryCardAdmin(admin.ModelAdmin):
+    list_display = ('id', 'reader', 'library', 'is_approved', 'created_at', 'updated_at')
+    list_filter = ('is_approved', 'library', 'created_at')
+    search_fields = ('reader__fullname', 'reader__phone', 'library__name')
+    readonly_fields = ('created_at', 'updated_at')
+    actions = ['approve_cards', 'disapprove_cards']
+
+    @admin.action(description='Tanlangan kutubxona kartalarini tasdiqlash')
+    def approve_cards(self, request, queryset):
+        queryset.update(is_approved=True)
+
+    @admin.action(description='Tanlangan kutubxona kartalarining tasdig\'ini bekor qilish')
+    def disapprove_cards(self, request, queryset):
+        queryset.update(is_approved=False)
+
+
+@admin.register(BookRating)
+class BookRatingAdmin(admin.ModelAdmin):
+    list_display = ('id', 'reader', 'book', 'rating', 'created_at')
+    list_filter = ('rating', 'created_at')
+    search_fields = ('reader__fullname', 'book__title')
+

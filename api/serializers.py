@@ -125,6 +125,7 @@ class ReaderLoginSerializer(serializers.Serializer):
         if not check_password(password, reader.password_hash):
             raise serializers.ValidationError({'password': 'Invalid credentials.'})
 
+        # Foydalanuvchi is_approved bo'lmasdan ham login qila oladi
         attrs['reader'] = reader
         return attrs
 
@@ -170,8 +171,8 @@ class ReservationSerializer(serializers.ModelSerializer):
         if not reader.token_created_at or timezone.now() - reader.token_created_at > timedelta(hours=24):
             raise serializers.ValidationError({'detail': 'Session expired. Please login again.'})
 
-        if not reader.is_approved:
-            raise serializers.ValidationError({'detail': 'Reader account is not approved by admin yet.'})
+        # Foydalanuvchi is_approved bo'lmasdan ham bron qila oladi
+        # (Faqat kutubxona kartasi admin tasdiqlangan bo'lishi kerak)
 
         if book and Issue.objects.filter(book=book, return_date__gte=timezone.now().date()).exists():
             raise serializers.ValidationError({'book': 'This book is currently issued and cannot be reserved.'})
@@ -182,8 +183,17 @@ class ReservationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'book': 'Book is not linked to a valid library.'})
 
         existing_card = ReaderLibraryCard.objects.filter(reader=reader, library=book.library).first()
-        if existing_card is None:
+
+        if existing_card is not None and existing_card.is_approved:
+            # Karta mavjud va admin tasdiqlagan — rasm so'ramaymiz
+            pass
+        else:
+            # Karta yo'q yoki tasdiqlanmagan — yangi rasm kerak
             if not card_image_base64:
+                if existing_card is not None and not existing_card.is_approved:
+                    raise serializers.ValidationError({
+                        'library_card_image_base64': 'Your library card is pending admin approval. You may upload a new card image.'
+                    })
                 raise serializers.ValidationError({
                     'library_card_image_base64': 'Library card image is required for this library.'
                 })
@@ -198,7 +208,11 @@ class ReservationSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'library_card_image_base64': 'Invalid base64 image.'}) from exc
 
             filename = f"library_card_{uuid.uuid4().hex}.jpg"
-            card = ReaderLibraryCard(reader=reader, library=book.library)
+            if existing_card is None:
+                card = ReaderLibraryCard(reader=reader, library=book.library)
+            else:
+                card = existing_card  # Qayta yuklash — tasdiqlanmagan karta yangilanadi
+                card.is_approved = False  # Yangi rasm — qayta tasdiqlash kerak
             card.card_image.save(filename, ContentFile(file_bytes), save=False)
             card.save()
 
@@ -210,8 +224,8 @@ class ReaderLibraryCardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReaderLibraryCard
-        fields = ['id', 'reader', 'library', 'library_name', 'card_image', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'reader', 'library_name', 'created_at', 'updated_at']
+        fields = ['id', 'reader', 'library', 'library_name', 'card_image', 'is_approved', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'reader', 'library_name', 'is_approved', 'created_at', 'updated_at']
 
 
 class BookRatingSerializer(serializers.ModelSerializer):

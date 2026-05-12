@@ -180,7 +180,7 @@ class ReaderViewSet(viewsets.ModelViewSet):
     serializer_class = ReaderSerializer
 
     def get_permissions(self):
-        if self.action in ['register', 'login', 'me', 'library_cards', 'refresh_status']:
+        if self.action in ['register', 'login', 'me', 'library_cards', 'refresh_status', 'check_library_card']:
             return [AllowAny()]
         return [IsAdminTokenOrReadOnly()]
 
@@ -260,12 +260,18 @@ class ReaderViewSet(viewsets.ModelViewSet):
 
         if not library_id:
             return Response({'library': 'Library id is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not card_image_base64:
-            return Response({'card_image_base64': 'Card image is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         library = Library.objects.filter(pk=library_id).first()
         if library is None:
             return Response({'library': 'Library not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Karta mavjud va tasdiqlangan bo'lsa — rasm so'ramaymiz
+        existing_card = ReaderLibraryCard.objects.filter(reader=reader, library=library).first()
+        if existing_card is not None and existing_card.is_approved:
+            return Response(ReaderLibraryCardSerializer(existing_card).data, status=status.HTTP_200_OK)
+
+        if not card_image_base64:
+            return Response({'card_image_base64': 'Card image is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         cleaned_b64 = card_image_base64
         if ';base64,' in cleaned_b64:
@@ -276,12 +282,37 @@ class ReaderViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({'card_image_base64': 'Invalid base64 image.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        card, _ = ReaderLibraryCard.objects.get_or_create(reader=reader, library=library)
+        if existing_card is not None:
+            # Karta bor lekin tasdiqlanmagan — yangi rasm bilan yangilaymiz
+            card = existing_card
+            card.is_approved = False
+        else:
+            card = ReaderLibraryCard(reader=reader, library=library)
         filename = f"library_card_{uuid.uuid4().hex}.jpg"
         card.card_image.save(filename, ContentFile(file_bytes), save=False)
         card.save()
 
         return Response(ReaderLibraryCardSerializer(card).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='check-library-card')
+    def check_library_card(self, request):
+        """Reader o'z kartasining holatini tekshiradi (ma'lum kutubxona uchun)"""
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response({'detail': 'Invalid token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        library_id = request.query_params.get('library')
+        if not library_id:
+            return Response({'library': 'Library id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        card = ReaderLibraryCard.objects.filter(reader=reader, library_id=library_id).first()
+        if card is None:
+            return Response({'has_card': False, 'is_approved': False})
+        return Response({
+            'has_card': True,
+            'is_approved': card.is_approved,
+            'card': ReaderLibraryCardSerializer(card).data,
+        })
 
 
 class IssueViewSet(viewsets.ModelViewSet):

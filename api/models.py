@@ -85,6 +85,7 @@ class ReaderLibraryCard(models.Model):
     reader = models.ForeignKey(Reader, on_delete=models.CASCADE, related_name='library_cards')
     library = models.ForeignKey(Library, on_delete=models.CASCADE, related_name='reader_cards')
     card_image = models.ImageField(upload_to='reader_library_cards/')
+    is_approved = models.BooleanField(default=False)  # Admin tasdiqlashi kerak
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
