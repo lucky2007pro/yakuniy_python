@@ -228,6 +228,30 @@ class ReaderViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Invalid token.'}, status=status.HTTP_401_UNAUTHORIZED)
         return Response(ReaderSerializer(reader).data)
 
+    @action(detail=False, methods=['put', 'patch'], url_path='update-me', permission_classes=[AllowAny])
+    def update_me(self, request):
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response({'detail': 'Invalid token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        fullname = request.data.get('fullname')
+        phone = request.data.get('phone')
+        password = request.data.get('password')
+
+        if fullname:
+            reader.fullname = fullname
+        if phone:
+            reader.phone = phone
+        if password:
+            from django.contrib.auth.hashers import make_password
+            reader.password_hash = make_password(password)
+
+        reader.save()
+        return Response({
+            'detail': 'Profile updated successfully.',
+            'reader': ReaderSerializer(reader).data
+        })
+
     @action(detail=False, methods=['get'], url_path='refresh-status')
     def refresh_status(self, request):
         reader = _resolve_reader_by_token(request)
