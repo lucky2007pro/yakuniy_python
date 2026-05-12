@@ -59,37 +59,26 @@ class BookSerializer(serializers.ModelSerializer):
 class ReaderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reader
-        fields = ['id', 'fullname', 'phone', 'card_id', 'card_image', 'is_approved', 'is_active', 'created_at']
+        fields = ['id', 'fullname', 'phone', 'card_id', 'is_active', 'created_at']
         read_only_fields = ['created_at']
 
 
 class ReaderRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
     card_id = serializers.CharField(required=False, allow_blank=True)
-    card_image_base64 = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Reader
-        fields = ['fullname', 'phone', 'card_id', 'password', 'card_image_base64']
+        fields = ['fullname', 'phone', 'card_id', 'password']
 
     def create(self, validated_data):
         password = validated_data.pop('password')
-        image_b64 = validated_data.pop('card_image_base64', '')
         # Agar card_id berilmagan bo'lsa, avtomatik UUID generatsiya qilish
         if not validated_data.get('card_id'):
             validated_data['card_id'] = f"LIB{uuid.uuid4().hex[:8].upper()}"
         reader = Reader(**validated_data)
         reader.password_hash = make_password(password)
-        reader.is_approved = False
         reader.is_active = True
-
-        if image_b64:
-            if ';base64,' in image_b64:
-                image_b64 = image_b64.split(';base64,', 1)[1]
-            file_bytes = base64.b64decode(image_b64)
-            filename = f"reader_{uuid.uuid4().hex}.jpg"
-            reader.card_image.save(filename, ContentFile(file_bytes), save=False)
-
         reader.save()
         return reader
 

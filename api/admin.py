@@ -6,26 +6,10 @@ admin.site.register([Library, Section, Author, Book, Issue, Reservation])
 
 @admin.register(Reader)
 class ReaderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'fullname', 'phone', 'card_id', 'is_approved', 'is_active', 'created_at')
-    list_filter = ('is_approved', 'is_active', 'created_at')
+    list_display = ('id', 'fullname', 'phone', 'card_id', 'is_active', 'created_at')
+    list_filter = ('is_active', 'created_at')
     search_fields = ('fullname', 'phone', 'card_id')
-    readonly_fields = ('card_image_preview',)
-    actions = ['approve_readers', 'disapprove_readers']
 
-    def card_image_preview(self, obj):
-        from django.utils.html import mark_safe
-        if obj.card_image:
-            return mark_safe(f'<img src="{obj.card_image.url}" style="max-height: 200px; border-radius: 5px;" />')
-        return "Rasm yuklanmagan"
-    card_image_preview.short_description = "Karta rasmi (Preview)"
-
-    @admin.action(description='Tanlangan o\'quvchilarni tasdiqlash')
-    def approve_readers(self, request, queryset):
-        queryset.update(is_approved=True)
-
-    @admin.action(description='Tanlangan o\'quvchilarning tasdig\'ini bekor qilish')
-    def disapprove_readers(self, request, queryset):
-        queryset.update(is_approved=False)
 
 
 @admin.register(ReaderLibraryCard)

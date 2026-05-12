@@ -149,8 +149,6 @@ class BookViewSet(viewsets.ModelViewSet):
         reader = _resolve_reader_by_token(request)
         if reader is None:
             return Response({'detail': 'Invalid or missing reader token.'}, status=status.HTTP_401_UNAUTHORIZED)
-        if not reader.is_approved:
-            return Response({'detail': 'Reader account is not approved.'}, status=status.HTTP_403_FORBIDDEN)
 
         book = self.get_object()
         rating_value = request.data.get('rating')
@@ -194,8 +192,7 @@ class ReaderViewSet(viewsets.ModelViewSet):
                 'id': reader.id,
                 'fullname': reader.fullname,
                 'card_id': reader.card_id,
-                'is_approved': reader.is_approved,
-                'message': 'Registration successful. Wait for admin approval.',
+                'message': 'Registration successful.',
             },
             status=status.HTTP_201_CREATED,
         )
@@ -221,7 +218,6 @@ class ReaderViewSet(viewsets.ModelViewSet):
                 'id': reader.id,
                 'fullname': reader.fullname,
                 'card_id': reader.card_id,
-                'is_approved': reader.is_approved,
             }
         )
 
@@ -239,7 +235,6 @@ class ReaderViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Invalid token.'}, status=status.HTTP_401_UNAUTHORIZED)
         return Response({
             'id': reader.id,
-            'is_approved': reader.is_approved,
             'is_active': reader.is_active,
             'fullname': reader.fullname,
             'card_id': reader.card_id,
@@ -382,3 +377,41 @@ class BookRatingViewSet(viewsets.ModelViewSet):
             reader=reader, book=book,
             defaults={'rating': rating, 'review': review},
         )
+
+
+class ReaderLibraryCardAdminViewSet(viewsets.ModelViewSet):
+    """
+    Admin C++ dasturi orqali Kutubxona Kartalarini ro'yxatdan o'tkazish,
+    ko'rish va tasdiqlash uchun maxsus endpoint.
+    """
+    queryset = ReaderLibraryCard.objects.all().select_related('reader', 'library').order_by('-created_at')
+    serializer_class = ReaderLibraryCardSerializer
+    permission_classes = [IsAdminTokenOrReadOnly]
+
+    def list(self, request, *args, **kwargs):
+        # Admin C++ dasturiga oson formatda jo'natamiz
+        cards = self.get_queryset()
+        data = []
+        for card in cards:
+            data.append({
+                'id': card.id,
+                'reader_id': card.reader.id,
+                'reader_name': card.reader.fullname,
+                'reader_phone': card.reader.phone,
+                'library_name': card.library.name,
+                'card_image': card.card_image.url if card.card_image else 'null',
+                'is_approved': card.is_approved,
+                'created_at': card.created_at.isoformat(),
+            })
+        return Response(data)
+
+    def update(self, request, *args, **kwargs):
+        # Faqat is_approved o'zgartirish uchun
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        if 'is_approved' in request.data:
+            instance.is_approved = request.data['is_approved']
+            instance.save(update_fields=['is_approved'])
+            return Response({'id': instance.id, 'is_approved': instance.is_approved})
+        return super().update(request, *args, **kwargs)
+

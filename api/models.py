@@ -46,8 +46,6 @@ class Reader(models.Model):
     phone = models.CharField(max_length=20)
     card_id = models.CharField(max_length=50, unique=True)
     password_hash = models.CharField(max_length=255, default='')
-    card_image = models.ImageField(upload_to='reader_cards/', blank=True, null=True)
-    is_approved = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     session_token = models.CharField(max_length=128, blank=True, null=True)
     token_created_at = models.DateTimeField(blank=True, null=True)

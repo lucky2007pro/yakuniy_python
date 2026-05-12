@@ -9,6 +9,7 @@ from .views import (
     IssueViewSet,
     ReservationViewSet,
     BookRatingViewSet,
+    ReaderLibraryCardAdminViewSet,
 )
 
 router = DefaultRouter()
@@ -20,6 +21,7 @@ router.register(r'readers', ReaderViewSet)
 router.register(r'issues', IssueViewSet)
 router.register(r'reservations', ReservationViewSet)
 router.register(r'ratings', BookRatingViewSet)
+router.register(r'library-cards-admin', ReaderLibraryCardAdminViewSet, basename='library-cards-admin')
 
 urlpatterns = [
     path('', include(router.urls)),
