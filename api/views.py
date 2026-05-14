@@ -56,6 +56,26 @@ def _is_admin_request(request):
     return bool(token) and token == getattr(settings, 'ADMIN_API_TOKEN', '')
 
 
+from rest_framework.decorators import api_view, permission_classes
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def statistics_view(request):
+    """Umumiy tizim statistikasi — Drogon frontend / Desktop ilova uchun."""
+    return Response({
+        'total_books':        Book.objects.count(),
+        'total_readers':      Reader.objects.count(),
+        'total_reservations': Reservation.objects.count(),
+        'total_issues':       Issue.objects.count(),
+        'total_libraries':    Library.objects.count(),
+        'total_sections':     Section.objects.count(),
+        'total_authors':      Author.objects.count(),
+        'pending_readers':    Reader.objects.filter(is_active=False).count(),
+        'pending_cards':      ReaderLibraryCard.objects.filter(is_approved=False).count(),
+    })
+
+
 class LibraryViewSet(viewsets.ModelViewSet):
     queryset = Library.objects.all()
     serializer_class = LibrarySerializer
