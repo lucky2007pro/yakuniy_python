@@ -98,6 +98,39 @@ class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
     permission_classes = [IsAdminTokenOrReadOnly]
+    # Drogon frontend filtr/qidiruv/saralash uchun
+    from rest_framework import filters as drf_filters
+    filter_backends = [drf_filters.SearchFilter, drf_filters.OrderingFilter]
+    search_fields = ['title', 'description', 'isbn', 'author__first_name', 'author__last_name']
+    ordering_fields = ['title', 'view_count', 'reservation_count', 'issue_count', 'published_date']
+    ordering = ['-view_count']
+
+    def get_queryset(self):
+        from django.utils import timezone as tz
+        from django.db.models import Exists, OuterRef, Q
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get('library'):
+            qs = qs.filter(library_id=params['library'])
+        if params.get('section'):
+            qs = qs.filter(section_id=params['section'])
+        if params.get('author'):
+            qs = qs.filter(author_id=params['author'])
+        # status filter: available | busy
+        status_param = (params.get('status') or params.get('is_available') or '').lower()
+        if status_param in ('available', 'true', '1'):
+            today = tz.now().date()
+            qs = qs.annotate(
+                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), return_date__gte=today)),
+                _res=Exists(Reservation.objects.filter(book=OuterRef('pk'))),
+            ).filter(_iss=False, _res=False)
+        elif status_param in ('busy', 'reserved', 'issued', 'false', '0'):
+            today = tz.now().date()
+            qs = qs.annotate(
+                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), return_date__gte=today)),
+                _res=Exists(Reservation.objects.filter(book=OuterRef('pk'))),
+            ).filter(Q(_iss=True) | Q(_res=True))
+        return qs
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -359,6 +392,21 @@ class IssueViewSet(viewsets.ModelViewSet):
     serializer_class = IssueSerializer
     permission_classes = [IsAdminTokenOrReadOnly]
 
+    def get_queryset(self):
+        qs = Issue.objects.all().select_related('reader', 'book').order_by('-issue_date')
+        # ?mine=1 — token egasining o'qish tarixi
+        if self.request.query_params.get('mine') == '1':
+            reader = _resolve_reader_by_token(self.request)
+            if reader is not None:
+                qs = qs.filter(reader=reader)
+            else:
+                qs = qs.none()
+        # ?reader=<id> — admin uchun
+        reader_id = self.request.query_params.get('reader')
+        if reader_id:
+            qs = qs.filter(reader_id=reader_id)
+        return qs
+
     def perform_create(self, serializer):
         issue = serializer.save()
         Book.objects.filter(pk=issue.book_id).update(issue_count=F('issue_count') + 1)
@@ -441,6 +489,7 @@ class ReaderLibraryCardAdminViewSet(viewsets.ModelViewSet):
                 'id': card.id,
                 'reader_id': card.reader.id,
                 'reader_name': card.reader.fullname,
+                'reader_card_id': card.reader.card_id,
                 'reader_phone': card.reader.phone,
                 'library_name': card.library.name,
                 'card_image': card.card_image.url if card.card_image else 'null',
