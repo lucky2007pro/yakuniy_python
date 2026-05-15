@@ -49,8 +49,7 @@ class BookSerializer(serializers.ModelSerializer):
         return obj.ratings.count()
 
     def get_is_available(self, obj):
-        from django.utils import timezone as tz
-        if Issue.objects.filter(book=obj, return_date__gte=tz.now().date()).exists():
+        if Issue.objects.filter(book=obj, is_returned=False).exists():
             return False
         if Reservation.objects.filter(book=obj).exists():
             return False
@@ -125,6 +124,7 @@ class IssueSerializer(serializers.ModelSerializer):
     class Meta:
         model = Issue
         fields = '__all__'
+        read_only_fields = ['is_returned']
 
 
 class ReservationSerializer(serializers.ModelSerializer):
@@ -163,7 +163,7 @@ class ReservationSerializer(serializers.ModelSerializer):
         # Foydalanuvchi is_approved bo'lmasdan ham bron qila oladi
         # (Faqat kutubxona kartasi admin tasdiqlangan bo'lishi kerak)
 
-        if book and Issue.objects.filter(book=book, return_date__gte=timezone.now().date()).exists():
+        if book and Issue.objects.filter(book=book, is_returned=False).exists():
             raise serializers.ValidationError({'book': 'This book is currently issued and cannot be reserved.'})
         if book and Reservation.objects.filter(book=book).exists():
             raise serializers.ValidationError({'book': 'This book is already reserved.'})

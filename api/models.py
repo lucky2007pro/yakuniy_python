@@ -59,6 +59,7 @@ class Issue(models.Model):
     book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='issues')
     issue_date = models.DateField(auto_now_add=True)
     return_date = models.DateField()
+    is_returned = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.reader.fullname} - {self.book.title}"

@@ -119,15 +119,13 @@ class BookViewSet(viewsets.ModelViewSet):
         # status filter: available | busy
         status_param = (params.get('status') or params.get('is_available') or '').lower()
         if status_param in ('available', 'true', '1'):
-            today = tz.now().date()
             qs = qs.annotate(
-                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), return_date__gte=today)),
+                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), is_returned=False)),
                 _res=Exists(Reservation.objects.filter(book=OuterRef('pk'))),
             ).filter(_iss=False, _res=False)
         elif status_param in ('busy', 'reserved', 'issued', 'false', '0'):
-            today = tz.now().date()
             qs = qs.annotate(
-                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), return_date__gte=today)),
+                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), is_returned=False)),
                 _res=Exists(Reservation.objects.filter(book=OuterRef('pk'))),
             ).filter(Q(_iss=True) | Q(_res=True))
         return qs
@@ -394,22 +392,54 @@ class IssueViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Issue.objects.all().select_related('reader', 'book').order_by('-issue_date')
-        # ?mine=1 — token egasining o'qish tarixi
         if self.request.query_params.get('mine') == '1':
             reader = _resolve_reader_by_token(self.request)
             if reader is not None:
                 qs = qs.filter(reader=reader)
             else:
                 qs = qs.none()
-        # ?reader=<id> — admin uchun
         reader_id = self.request.query_params.get('reader')
         if reader_id:
             qs = qs.filter(reader_id=reader_id)
         return qs
 
+    def create(self, request, *args, **kwargs):
+        book_id = request.data.get('book')
+        if book_id:
+            if Issue.objects.filter(book_id=book_id, is_returned=False).exists():
+                return Response(
+                    {'detail': "Bu kitob hozirda boshqa o'quvchiga berilgan va qaytarilmagan."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if Reservation.objects.filter(book_id=book_id).exists():
+                reader_id = request.data.get('reader')
+                if not Reservation.objects.filter(book_id=book_id, reader_id=reader_id).exists():
+                    return Response(
+                        {'detail': "Bu kitob boshqa o'quvchi tomonidan band qilingan."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+        response = super().create(request, *args, **kwargs)
+        if response.status_code in (200, 201) and book_id:
+            Reservation.objects.filter(book_id=book_id).delete()
+        return response
+
     def perform_create(self, serializer):
         issue = serializer.save()
         Book.objects.filter(pk=issue.book_id).update(issue_count=F('issue_count') + 1)
+
+    @action(detail=True, methods=['post'], url_path='return')
+    def return_book(self, request, pk=None):
+        issue = self.get_object()
+        if issue.is_returned:
+            return Response({'detail': 'Bu kitob allaqachon qaytarilgan.'}, status=status.HTTP_400_BAD_REQUEST)
+        issue.is_returned = True
+        issue.save(update_fields=['is_returned'])
+        return Response({
+            'id': issue.id,
+            'is_returned': True,
+            'book_title': issue.book.title,
+            'reader_name': issue.reader.fullname,
+        })
 
 
 class ReservationViewSet(viewsets.ModelViewSet):
@@ -426,6 +456,63 @@ class ReservationViewSet(viewsets.ModelViewSet):
             else:
                 qs = qs.none()
         return qs
+
+    def create(self, request, *args, **kwargs):
+        from django.utils import timezone as tz
+
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response(
+                {'detail': "Tizimga kirishingiz kerak. Iltimos, qayta kiring."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        book_id = request.data.get('book')
+        if not book_id:
+            return Response({'detail': "Kitob tanlanmagan."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            book = Book.objects.select_related('library').get(pk=book_id)
+        except Book.DoesNotExist:
+            return Response({'detail': "Kitob topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        if Issue.objects.filter(book=book, is_returned=False).exists():
+            return Response(
+                {'detail': "Bu kitob hozirda biror o'quvchiga berilgan va bronlab bo'lmaydi."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Reservation.objects.filter(book=book).exists():
+            return Response(
+                {'detail': "Bu kitob allaqachon band qilingan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if book.library:
+            card = ReaderLibraryCard.objects.filter(reader=reader, library=book.library).first()
+            if card is None:
+                return Response(
+                    {'detail': f"'{book.library.name}' kutubxonasi uchun ruxsatnoma kartasi kerak. Profil sahifasidan yuklang."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not card.is_approved:
+                return Response(
+                    {'detail': "Kutubxona kartangiz admin tomonidan hali tasdiqlanmagan. Tasdiq kutilmoqda."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            reservation = Reservation.objects.create(reader=reader, book=book)
+        except Exception:
+            return Response(
+                {'detail': "Bronlashda xato yuz berdi. Kitob allaqachon band bo'lishi mumkin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        Book.objects.filter(pk=book.pk).update(reservation_count=F('reservation_count') + 1)
+        return Response(
+            {'id': reservation.id, 'book': book.id, 'book_title': book.title},
+            status=status.HTTP_201_CREATED,
+        )
 
     def perform_create(self, serializer):
         reservation = serializer.save()
