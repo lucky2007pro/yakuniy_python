@@ -1,6 +1,7 @@
 import base64
 import uuid
 from datetime import timedelta
+from math import radians, sin, cos, asin, sqrt
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -8,6 +9,18 @@ from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import serializers
 from django.db.models import Avg, Count
 from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating, BookFavourite
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    """Haversine formulasi orqali ikki nuqta orasidagi masofa (km)."""
+    try:
+        lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+    except (TypeError, ValueError):
+        return None
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    return round(6371 * 2 * asin(sqrt(a)), 2)
 
 class LibrarySerializer(serializers.ModelSerializer):
     book_count = serializers.SerializerMethodField()
@@ -39,6 +52,7 @@ class BookSerializer(serializers.ModelSerializer):
     ratings_count = serializers.SerializerMethodField()
     is_available = serializers.SerializerMethodField()
     availability_status = serializers.SerializerMethodField()
+    distance_km = serializers.SerializerMethodField()
 
     class Meta:
         model = Book
@@ -64,6 +78,19 @@ class BookSerializer(serializers.ModelSerializer):
 
     def get_is_available(self, obj):
         return self.get_availability_status(obj) == 'available'
+
+    def get_distance_km(self, obj):
+        request = self.context.get('request')
+        if request is None or obj.library is None:
+            return None
+        lat = request.query_params.get('user_lat') if hasattr(request, 'query_params') else None
+        lon = request.query_params.get('user_lon') if hasattr(request, 'query_params') else None
+        if not lat or not lon:
+            return None
+        if obj.library.latitude is None or obj.library.longitude is None:
+            return None
+        return _haversine_km(lat, lon, obj.library.latitude, obj.library.longitude)
+
 
 class ReaderSerializer(serializers.ModelSerializer):
     class Meta:

@@ -125,6 +125,31 @@ class BookViewSet(viewsets.ModelViewSet):
     ordering_fields = ['title', 'view_count', 'reservation_count', 'issue_count', 'published_date']
     ordering = ['-view_count']
 
+    def list(self, request, *args, **kwargs):
+        ordering = request.query_params.get('ordering', '')
+        user_lat = request.query_params.get('user_lat')
+        user_lon = request.query_params.get('user_lon')
+        # Masofa bo'yicha saralash maxsus rejimi
+        if ordering in ('distance', '-distance') and user_lat and user_lon:
+            from .serializers import _haversine_km
+            qs = self.filter_queryset(self.get_queryset()).select_related('library', 'author')
+            books = list(qs)
+
+            def _dist(b):
+                if b.library is None or b.library.latitude is None or b.library.longitude is None:
+                    return 9.9e9  # Library yo'q — oxiriga
+                d = _haversine_km(user_lat, user_lon, b.library.latitude, b.library.longitude)
+                return d if d is not None else 9.9e9
+
+            books.sort(key=_dist, reverse=(ordering == '-distance'))
+            page = self.paginate_queryset(books)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(books, many=True)
+            return Response(serializer.data)
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         from django.db.models import Exists, OuterRef, Q
         _purge_expired_reservations()
