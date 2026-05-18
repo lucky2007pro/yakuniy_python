@@ -8,8 +8,16 @@ from django.db.models import Avg, Count, F
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+
+
+class BookPagination(PageNumberPagination):
+    """Bosh sahifa va admin uchun sahifalashtirish."""
+    page_size = 24
+    page_size_query_param = 'page_size'
+    max_page_size = 10000
 
 from .models import (
     Library,
@@ -107,6 +115,7 @@ class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
     permission_classes = [IsAdminTokenOrReadOnly]
+    pagination_class = BookPagination
     # Drogon frontend filtr/qidiruv/saralash uchun
     from rest_framework import filters as drf_filters
     filter_backends = [drf_filters.SearchFilter, drf_filters.OrderingFilter]

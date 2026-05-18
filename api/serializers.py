@@ -10,9 +10,14 @@ from django.db.models import Avg, Count
 from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating
 
 class LibrarySerializer(serializers.ModelSerializer):
+    book_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Library
         fields = '__all__'
+
+    def get_book_count(self, obj):
+        return obj.books.count()
 
 class SectionSerializer(serializers.ModelSerializer):
     class Meta:
