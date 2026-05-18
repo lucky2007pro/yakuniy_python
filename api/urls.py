@@ -11,6 +11,7 @@ from .views import (
     BookRatingViewSet,
     BookFavouriteViewSet,
     ReaderLibraryCardAdminViewSet,
+    AIAdvisorViewSet,
     statistics_view,
 )
 
@@ -24,6 +25,7 @@ router.register(r'issues', IssueViewSet)
 router.register(r'reservations', ReservationViewSet)
 router.register(r'ratings', BookRatingViewSet)
 router.register(r'favourites', BookFavouriteViewSet, basename='favourites')
+router.register(r'ai', AIAdvisorViewSet, basename='ai')
 router.register(r'library-cards-admin', ReaderLibraryCardAdminViewSet, basename='library-cards-admin')
 
 urlpatterns = [

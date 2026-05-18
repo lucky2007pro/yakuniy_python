@@ -95,17 +95,18 @@ class BookSerializer(serializers.ModelSerializer):
 class ReaderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reader
-        fields = ['id', 'fullname', 'phone', 'card_id', 'is_active', 'created_at']
+        fields = ['id', 'fullname', 'phone', 'email', 'card_id', 'is_active', 'notify_email', 'created_at']
         read_only_fields = ['created_at']
 
 
 class ReaderRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
     card_id = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
 
     class Meta:
         model = Reader
-        fields = ['fullname', 'phone', 'card_id', 'password']
+        fields = ['fullname', 'phone', 'email', 'card_id', 'password']
 
     def create(self, validated_data):
         password = validated_data.pop('password')

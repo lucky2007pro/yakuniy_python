@@ -132,6 +132,20 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # Desktop admin token (matches password used in WinForms AdminForm)
 ADMIN_API_TOKEN = os.environ.get('ADMIN_API_TOKEN', 'TATU2026')
 
+# Gemini AI (https://aistudio.google.com/ → Get API key)
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL   = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+
+# Email (SMTP). Default — console (xabarlar terminalga chiqadi, real yuborilmaydi).
+EMAIL_BACKEND       = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST          = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT          = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS       = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_HOST_USER     = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL  = os.environ.get('DEFAULT_FROM_EMAIL', 'TATU Kutubxona <noreply@tatu.uz>')
+SITE_URL            = os.environ.get('SITE_URL', 'http://localhost:8080')
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 if DEBUG:

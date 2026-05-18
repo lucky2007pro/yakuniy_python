@@ -217,6 +217,74 @@ class BookViewSet(viewsets.ModelViewSet):
         books = Book.objects.all().order_by('-issue_count', '-view_count')[:limit]
         return Response(self.get_serializer(books, many=True).data)
 
+    @action(detail=False, methods=['get'], url_path='recommended-for-me', permission_classes=[AllowAny])
+    def recommended_for_me(self, request):
+        """Foydalanuvchining tarixiga (issues + reservations + favourites) qarab tavsiya."""
+        from django.db.models import Q
+        try:
+            limit = int(request.query_params.get('limit', 8))
+        except ValueError:
+            limit = 8
+
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            # Mehmon — eng mashhurlarni qaytaramiz
+            books = Book.objects.all().order_by('-view_count', '-issue_count')[:limit]
+            return Response(self.get_serializer(books, many=True, context={'request': request}).data)
+
+        # Foydalanuvchi tarixi
+        history_ids = set()
+        history_ids.update(Issue.objects.filter(reader=reader).values_list('book_id', flat=True))
+        history_ids.update(Reservation.objects.filter(reader=reader).values_list('book_id', flat=True))
+        history_ids.update(BookFavourite.objects.filter(reader=reader).values_list('book_id', flat=True))
+
+        if not history_ids:
+            books = Book.objects.all().order_by('-view_count', '-issue_count')[:limit]
+            return Response(self.get_serializer(books, many=True, context={'request': request}).data)
+
+        history_books = Book.objects.filter(id__in=history_ids).select_related('section', 'author')
+        section_ids = {b.section_id for b in history_books if b.section_id}
+        author_ids  = {b.author_id  for b in history_books if b.author_id}
+
+        if not section_ids and not author_ids:
+            books = Book.objects.exclude(id__in=history_ids).order_by('-view_count')[:limit]
+            return Response(self.get_serializer(books, many=True, context={'request': request}).data)
+
+        flt = Q()
+        if section_ids: flt |= Q(section_id__in=section_ids)
+        if author_ids:  flt |= Q(author_id__in=author_ids)
+
+        books = (Book.objects.filter(flt)
+                 .exclude(id__in=history_ids)
+                 .order_by('-view_count', '-issue_count')[:limit])
+        return Response(self.get_serializer(books, many=True, context={'request': request}).data)
+
+    @action(detail=False, methods=['get'], url_path='autocomplete', permission_classes=[AllowAny])
+    def autocomplete(self, request):
+        """Qidiruv autocomplete — kitob nomi bo'yicha tezkor takliflar."""
+        from django.db.models import Q
+        q = (request.query_params.get('q') or '').strip()
+        if len(q) < 2:
+            return Response([])
+        try:
+            limit = int(request.query_params.get('limit', 8))
+        except ValueError:
+            limit = 8
+        books = (Book.objects
+                 .filter(Q(title__icontains=q) | Q(author__first_name__icontains=q) | Q(author__last_name__icontains=q))
+                 .select_related('author', 'library')
+                 .order_by('-view_count')[:limit])
+        return Response([
+            {
+                'id': b.id,
+                'title': b.title,
+                'author': str(b.author) if b.author else '',
+                'library': b.library.name if b.library else '',
+                'cover': b.cover_image.url if b.cover_image else '',
+            }
+            for b in books
+        ])
+
     @action(detail=False, methods=['get'], url_path='trending', permission_classes=[AllowAny])
     def trending(self, request):
         try:
@@ -280,7 +348,7 @@ class ReaderViewSet(viewsets.ModelViewSet):
     serializer_class = ReaderSerializer
 
     def get_permissions(self):
-        if self.action in ['register', 'login', 'me', 'library_cards', 'refresh_status', 'check_library_card']:
+        if self.action in ['register', 'login', 'me', 'library_cards', 'refresh_status', 'check_library_card', 'my_stats', 'update_me']:
             return [AllowAny()]
         return [IsAdminTokenOrReadOnly()]
 
@@ -338,12 +406,21 @@ class ReaderViewSet(viewsets.ModelViewSet):
 
         fullname = request.data.get('fullname')
         phone = request.data.get('phone')
+        email = request.data.get('email')
         password = request.data.get('password')
+        notify_email = request.data.get('notify_email')
 
         if fullname:
             reader.fullname = fullname
         if phone:
             reader.phone = phone
+        if email is not None:
+            reader.email = email
+        if notify_email is not None:
+            if isinstance(notify_email, str):
+                reader.notify_email = notify_email.lower() in ('1', 'true', 'on', 'yes')
+            else:
+                reader.notify_email = bool(notify_email)
         if password:
             from django.contrib.auth.hashers import make_password
             reader.password_hash = make_password(password)
@@ -352,6 +429,77 @@ class ReaderViewSet(viewsets.ModelViewSet):
         return Response({
             'detail': 'Profile updated successfully.',
             'reader': ReaderSerializer(reader).data
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-stats', permission_classes=[AllowAny])
+    def my_stats(self, request):
+        """O'quvchining gamification statistikasi: ko'rsatkichlar va belgilar."""
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response({'detail': 'Invalid token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        from datetime import timedelta
+        now = timezone.now()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_30_days = now - timedelta(days=30)
+
+        total_issues       = Issue.objects.filter(reader=reader).count()
+        returned_issues    = Issue.objects.filter(reader=reader, is_returned=True).count()
+        active_issues      = Issue.objects.filter(reader=reader, is_returned=False).count()
+        month_issues       = Issue.objects.filter(reader=reader, issue_date__gte=start_of_month.date()).count()
+        recent_issues      = Issue.objects.filter(reader=reader, issue_date__gte=last_30_days.date()).count()
+        total_reservations = Reservation.objects.filter(reader=reader).count()
+        active_reservations= Reservation.objects.filter(reader=reader, expires_at__gt=now).count()
+        total_favourites   = BookFavourite.objects.filter(reader=reader).count()
+        total_ratings      = BookRating.objects.filter(reader=reader).count()
+
+        # Belgilar (badges)
+        badges = []
+        if total_issues >= 1:
+            badges.append({'code': 'first_book',   'name': 'Birinchi kitob',  'icon': '📖', 'description': 'Birinchi kitob olindi'})
+        if total_issues >= 10:
+            badges.append({'code': 'reader_10',    'name': "O'qiganchi",      'icon': '📚', 'description': '10 kitob o\'qildi'})
+        if total_issues >= 50:
+            badges.append({'code': 'bibliophile',  'name': 'Bibliofil',       'icon': '🎓', 'description': '50 kitob o\'qildi'})
+        if total_issues >= 100:
+            badges.append({'code': 'sage',         'name': 'Donishmand',      'icon': '👑', 'description': '100 kitob o\'qildi'})
+        if total_ratings >= 1:
+            badges.append({'code': 'first_review', 'name': 'Ilk sharh',       'icon': '⭐', 'description': 'Birinchi sharh yozildi'})
+        if total_ratings >= 10:
+            badges.append({'code': 'critic',       'name': 'Tanqidchi',       'icon': '🖋',  'description': '10 ta sharh yozildi'})
+        if total_favourites >= 5:
+            badges.append({'code': 'collector',    'name': 'Yig\'uvchi',      'icon': '❤️', 'description': '5 sevimli kitob'})
+        if month_issues >= 5:
+            badges.append({'code': 'active_month', 'name': 'Faol oy',         'icon': '🔥', 'description': 'Bu oyda 5+ kitob'})
+        if returned_issues >= 1 and active_issues == 0 and total_issues >= 3:
+            badges.append({'code': 'punctual',     'name': 'Aniq vaqtli',     'icon': '⏰', 'description': 'Hamma kitoblar qaytarilgan'})
+
+        # Daraja: 0–9 = Yangi, 10–24 = O'qiganchi, 25–49 = Mutolaachi, 50–99 = Bibliofil, 100+ = Donishmand
+        if total_issues >= 100:
+            level = {'name': 'Donishmand', 'tier': 5, 'next_at': None}
+        elif total_issues >= 50:
+            level = {'name': 'Bibliofil',  'tier': 4, 'next_at': 100}
+        elif total_issues >= 25:
+            level = {'name': 'Mutolaachi', 'tier': 3, 'next_at': 50}
+        elif total_issues >= 10:
+            level = {'name': "O'qiganchi", 'tier': 2, 'next_at': 25}
+        else:
+            level = {'name': 'Yangi',      'tier': 1, 'next_at': 10}
+
+        return Response({
+            'level': level,
+            'badges': badges,
+            'metrics': {
+                'total_issues':        total_issues,
+                'returned_issues':     returned_issues,
+                'active_issues':       active_issues,
+                'month_issues':        month_issues,
+                'recent_issues':       recent_issues,
+                'total_reservations':  total_reservations,
+                'active_reservations': active_reservations,
+                'total_favourites':    total_favourites,
+                'total_ratings':       total_ratings,
+            },
         })
 
     @action(detail=False, methods=['get'], url_path='refresh-status')
@@ -723,4 +871,60 @@ class ReaderLibraryCardAdminViewSet(viewsets.ModelViewSet):
             instance.save(update_fields=['is_approved'])
             return Response({'id': instance.id, 'is_approved': instance.is_approved})
         return super().update(request, *args, **kwargs)
+
+
+class AIAdvisorViewSet(viewsets.ViewSet):
+    """Gemini 2.5 Flash asosida ishlovchi AI maslahatchi."""
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['get'], url_path='status')
+    def status_check(self, request):
+        from . import ai_service
+        return Response({'configured': ai_service.is_configured()})
+
+    @action(detail=False, methods=['post'], url_path='chat')
+    def chat(self, request):
+        from . import ai_service
+        message = (request.data.get('message') or '').strip()
+        history = request.data.get('history') or []
+        if not isinstance(history, list):
+            history = []
+        if not message:
+            return Response({'error': 'Xabar bo\'sh.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(message) > 1500:
+            return Response({'error': 'Xabar juda uzun (max 1500 belgi).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Tarixdan keyingi 8 ta xabarni olamiz
+        clean_history = []
+        for m in history[-8:]:
+            if isinstance(m, dict) and m.get('content'):
+                role = m.get('role')
+                clean_history.append({
+                    'role': 'model' if role == 'model' else 'user',
+                    'content': str(m.get('content'))[:1500],
+                })
+
+        # Kitoblar katalogi (kontekst uchun)
+        catalog = list(
+            Book.objects.select_related('author', 'library')
+            .order_by('-view_count', '-issue_count')[:60]
+        )
+        catalog_payload = [
+            {
+                'id': b.id,
+                'title': b.title,
+                'author': str(b.author) if b.author else '',
+                'library': b.library.name if b.library else '',
+            }
+            for b in catalog
+        ]
+
+        result = ai_service.chat(
+            user_message=message,
+            history=clean_history,
+            book_catalog=catalog_payload,
+        )
+        if 'error' in result:
+            return Response({'error': result['error']}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({'reply': result.get('reply', '')})
 
