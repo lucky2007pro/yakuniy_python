@@ -33,6 +33,7 @@ class BookSerializer(serializers.ModelSerializer):
     average_rating = serializers.SerializerMethodField()
     ratings_count = serializers.SerializerMethodField()
     is_available = serializers.SerializerMethodField()
+    availability_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Book
@@ -48,12 +49,15 @@ class BookSerializer(serializers.ModelSerializer):
     def get_ratings_count(self, obj):
         return obj.ratings.count()
 
-    def get_is_available(self, obj):
+    def get_availability_status(self, obj):
         if Issue.objects.filter(book=obj, is_returned=False).exists():
-            return False
+            return 'issued'
         if Reservation.objects.filter(book=obj).exists():
-            return False
-        return True
+            return 'reserved'
+        return 'available'
+
+    def get_is_available(self, obj):
+        return self.get_availability_status(obj) == 'available'
 
 class ReaderSerializer(serializers.ModelSerializer):
     class Meta:
@@ -124,7 +128,6 @@ class IssueSerializer(serializers.ModelSerializer):
     class Meta:
         model = Issue
         fields = '__all__'
-        read_only_fields = ['is_returned']
 
 
 class ReservationSerializer(serializers.ModelSerializer):

@@ -116,6 +116,9 @@ class BookViewSet(viewsets.ModelViewSet):
             qs = qs.filter(section_id=params['section'])
         if params.get('author'):
             qs = qs.filter(author_id=params['author'])
+        # ebook filter: has_ebook=true | ebook_only=1
+        if params.get('has_ebook') in ('true', '1') or params.get('ebook_only') in ('true', '1'):
+            qs = qs.exclude(ebook_file='').exclude(ebook_file__isnull=True)
         # status filter: available | busy
         status_param = (params.get('status') or params.get('is_available') or '').lower()
         if status_param in ('available', 'true', '1'):
