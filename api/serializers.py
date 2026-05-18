@@ -52,7 +52,8 @@ class BookSerializer(serializers.ModelSerializer):
     def get_availability_status(self, obj):
         if Issue.objects.filter(book=obj, is_returned=False).exists():
             return 'issued'
-        if Reservation.objects.filter(book=obj).exists():
+        now = timezone.now()
+        if Reservation.objects.filter(book=obj, expires_at__gt=now).exists():
             return 'reserved'
         return 'available'
 
@@ -134,10 +135,13 @@ class ReservationSerializer(serializers.ModelSerializer):
     reader_name = serializers.CharField(source='reader.fullname', read_only=True)
     book_title = serializers.CharField(source='book.title', read_only=True)
     library_card_image_base64 = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    days_remaining = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Reservation
         fields = '__all__'
+        read_only_fields = ['reserved_at', 'expires_at']
 
     def validate(self, attrs):
         request = self.context.get('request')
@@ -166,9 +170,10 @@ class ReservationSerializer(serializers.ModelSerializer):
         # Foydalanuvchi is_approved bo'lmasdan ham bron qila oladi
         # (Faqat kutubxona kartasi admin tasdiqlangan bo'lishi kerak)
 
+        now = timezone.now()
         if book and Issue.objects.filter(book=book, is_returned=False).exists():
             raise serializers.ValidationError({'book': 'This book is currently issued and cannot be reserved.'})
-        if book and Reservation.objects.filter(book=book).exists():
+        if book and Reservation.objects.filter(book=book, expires_at__gt=now).exists():
             raise serializers.ValidationError({'book': 'This book is already reserved.'})
 
         if book is None or book.library is None:

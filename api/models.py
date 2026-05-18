@@ -1,4 +1,13 @@
+from datetime import timedelta
+
 from django.db import models
+from django.utils import timezone
+
+
+def _default_reservation_expiry():
+    """Bron sukut bo'yicha yaratilgandan 3 kun keyin tugaydi."""
+    return timezone.now() + timedelta(days=3)
+
 
 class Library(models.Model):
     name = models.CharField(max_length=200)
@@ -69,6 +78,7 @@ class Reservation(models.Model):
     reader = models.ForeignKey(Reader, on_delete=models.CASCADE, related_name='reservations')
     book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='reservations')
     reserved_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(default=_default_reservation_expiry)
     note = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
@@ -78,6 +88,17 @@ class Reservation(models.Model):
 
     def __str__(self):
         return f"{self.reader.fullname} reserved {self.book.title}"
+
+    @property
+    def is_expired(self):
+        return self.expires_at is not None and self.expires_at <= timezone.now()
+
+    @property
+    def days_remaining(self):
+        if self.expires_at is None:
+            return 0
+        delta = self.expires_at - timezone.now()
+        return max(0, delta.days)
 
 
 class ReaderLibraryCard(models.Model):

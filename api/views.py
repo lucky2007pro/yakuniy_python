@@ -56,6 +56,15 @@ def _is_admin_request(request):
     return bool(token) and token == getattr(settings, 'ADMIN_API_TOKEN', '')
 
 
+def _purge_expired_reservations():
+    """Muddati o'tgan bronlarni avtomatik o'chiradi. Har so'rovda chaqiriladi."""
+    try:
+        Reservation.objects.filter(expires_at__lte=timezone.now()).delete()
+    except Exception:
+        # Migration hali qo'llanmagan bo'lishi mumkin — sukut bilan o'tkazib yuboramiz
+        pass
+
+
 from rest_framework.decorators import api_view, permission_classes
 
 
@@ -106,8 +115,8 @@ class BookViewSet(viewsets.ModelViewSet):
     ordering = ['-view_count']
 
     def get_queryset(self):
-        from django.utils import timezone as tz
         from django.db.models import Exists, OuterRef, Q
+        _purge_expired_reservations()
         qs = super().get_queryset()
         params = self.request.query_params
         if params.get('library'):
@@ -120,16 +129,19 @@ class BookViewSet(viewsets.ModelViewSet):
         if params.get('has_ebook') in ('true', '1') or params.get('ebook_only') in ('true', '1'):
             qs = qs.exclude(ebook_file='').exclude(ebook_file__isnull=True)
         # status filter: available | busy
+        now = timezone.now()
+        active_res = Reservation.objects.filter(book=OuterRef('pk'), expires_at__gt=now)
+        active_iss = Issue.objects.filter(book=OuterRef('pk'), is_returned=False)
         status_param = (params.get('status') or params.get('is_available') or '').lower()
         if status_param in ('available', 'true', '1'):
             qs = qs.annotate(
-                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), is_returned=False)),
-                _res=Exists(Reservation.objects.filter(book=OuterRef('pk'))),
+                _iss=Exists(active_iss),
+                _res=Exists(active_res),
             ).filter(_iss=False, _res=False)
         elif status_param in ('busy', 'reserved', 'issued', 'false', '0'):
             qs = qs.annotate(
-                _iss=Exists(Issue.objects.filter(book=OuterRef('pk'), is_returned=False)),
-                _res=Exists(Reservation.objects.filter(book=OuterRef('pk'))),
+                _iss=Exists(active_iss),
+                _res=Exists(active_res),
             ).filter(Q(_iss=True) | Q(_res=True))
         return qs
 
@@ -407,6 +419,7 @@ class IssueViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
+        _purge_expired_reservations()
         book_id = request.data.get('book')
         if book_id:
             if Issue.objects.filter(book_id=book_id, is_returned=False).exists():
@@ -414,15 +427,18 @@ class IssueViewSet(viewsets.ModelViewSet):
                     {'detail': "Bu kitob hozirda boshqa o'quvchiga berilgan va qaytarilmagan."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if Reservation.objects.filter(book_id=book_id).exists():
+            now = timezone.now()
+            active_res = Reservation.objects.filter(book_id=book_id, expires_at__gt=now)
+            if active_res.exists():
                 reader_id = request.data.get('reader')
-                if not Reservation.objects.filter(book_id=book_id, reader_id=reader_id).exists():
+                if not active_res.filter(reader_id=reader_id).exists():
                     return Response(
                         {'detail': "Bu kitob boshqa o'quvchi tomonidan band qilingan."},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
         response = super().create(request, *args, **kwargs)
         if response.status_code in (200, 201) and book_id:
+            # Kitob berilgach barcha bronlarni o'chiramiz
             Reservation.objects.filter(book_id=book_id).delete()
         return response
 
@@ -451,6 +467,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
     def get_queryset(self):
+        _purge_expired_reservations()
         qs = Reservation.objects.all().select_related('reader', 'book').order_by('-reserved_at')
         if self.request.query_params.get('mine') == '1':
             reader = _resolve_reader_by_token(self.request)
@@ -461,7 +478,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        from django.utils import timezone as tz
+        _purge_expired_reservations()
 
         reader = _resolve_reader_by_token(request)
         if reader is None:
@@ -484,7 +501,8 @@ class ReservationViewSet(viewsets.ModelViewSet):
                 {'detail': "Bu kitob hozirda biror o'quvchiga berilgan va bronlab bo'lmaydi."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if Reservation.objects.filter(book=book).exists():
+        now = timezone.now()
+        if Reservation.objects.filter(book=book, expires_at__gt=now).exists():
             return Response(
                 {'detail': "Bu kitob allaqachon band qilingan."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -513,7 +531,13 @@ class ReservationViewSet(viewsets.ModelViewSet):
 
         Book.objects.filter(pk=book.pk).update(reservation_count=F('reservation_count') + 1)
         return Response(
-            {'id': reservation.id, 'book': book.id, 'book_title': book.title},
+            {
+                'id': reservation.id,
+                'book': book.id,
+                'book_title': book.title,
+                'expires_at': reservation.expires_at.isoformat() if reservation.expires_at else None,
+                'days_remaining': reservation.days_remaining,
+            },
             status=status.HTTP_201_CREATED,
         )
 
