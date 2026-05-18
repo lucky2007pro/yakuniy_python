@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import serializers
 from django.db.models import Avg, Count
-from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating
+from .models import Library, Section, Author, Book, Reader, Issue, Reservation, ReaderLibraryCard, BookRating, BookFavourite
 
 class LibrarySerializer(serializers.ModelSerializer):
     book_count = serializers.SerializerMethodField()
@@ -243,3 +243,48 @@ class BookRatingSerializer(serializers.ModelSerializer):
         if value < 1 or value > 5:
             raise serializers.ValidationError('Rating must be between 1 and 5.')
         return value
+
+
+class BookFavouriteSerializer(serializers.ModelSerializer):
+    book_title = serializers.CharField(source='book.title', read_only=True)
+    book_cover = serializers.SerializerMethodField()
+    author_name = serializers.SerializerMethodField()
+    library_name = serializers.CharField(source='book.library.name', read_only=True, default='')
+    is_available = serializers.SerializerMethodField()
+    availability_status = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BookFavourite
+        fields = [
+            'id', 'book', 'book_title', 'book_cover', 'author_name',
+            'library_name', 'is_available', 'availability_status',
+            'average_rating', 'created_at',
+        ]
+        read_only_fields = ['id', 'reader', 'created_at']
+
+    def get_book_cover(self, obj):
+        if obj.book and obj.book.cover_image:
+            try:
+                return obj.book.cover_image.url
+            except Exception:
+                return ''
+        return ''
+
+    def get_author_name(self, obj):
+        return str(obj.book.author) if (obj.book and obj.book.author) else ''
+
+    def get_availability_status(self, obj):
+        if Issue.objects.filter(book=obj.book, is_returned=False).exists():
+            return 'issued'
+        now = timezone.now()
+        if Reservation.objects.filter(book=obj.book, expires_at__gt=now).exists():
+            return 'reserved'
+        return 'available'
+
+    def get_is_available(self, obj):
+        return self.get_availability_status(obj) == 'available'
+
+    def get_average_rating(self, obj):
+        agg = obj.book.ratings.aggregate(avg=Avg('rating'))
+        return round(agg['avg'], 2) if agg['avg'] is not None else 0.0

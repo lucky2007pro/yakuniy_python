@@ -29,6 +29,7 @@ from .models import (
     Reservation,
     ReaderLibraryCard,
     BookRating,
+    BookFavourite,
 )
 from .permissions import IsAdminTokenOrReadOnly
 from .serializers import (
@@ -36,6 +37,7 @@ from .serializers import (
     SectionSerializer,
     AuthorSerializer,
     BookSerializer,
+    BookFavouriteSerializer,
     ReaderSerializer,
     ReaderRegisterSerializer,
     ReaderLoginSerializer,
@@ -592,6 +594,72 @@ class BookRatingViewSet(viewsets.ModelViewSet):
             reader=reader, book=book,
             defaults={'rating': rating, 'review': review},
         )
+
+
+class BookFavouriteViewSet(viewsets.ModelViewSet):
+    """Foydalanuvchining sevimli kitoblari — har o'quvchi uchun alohida."""
+    queryset = BookFavourite.objects.all()
+    serializer_class = BookFavouriteSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        reader = _resolve_reader_by_token(self.request)
+        if reader is None:
+            return BookFavourite.objects.none()
+        return BookFavourite.objects.filter(reader=reader).select_related(
+            'book', 'book__library', 'book__author'
+        )
+
+    def create(self, request, *args, **kwargs):
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response({'detail': 'Tizimga kiring.'}, status=status.HTTP_401_UNAUTHORIZED)
+        book_id = request.data.get('book')
+        if not book_id:
+            return Response({'detail': 'Kitob tanlanmagan.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not Book.objects.filter(pk=book_id).exists():
+            return Response({'detail': 'Kitob topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+        fav, created = BookFavourite.objects.get_or_create(reader=reader, book_id=book_id)
+        return Response(
+            BookFavouriteSerializer(fav).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response({'detail': 'Tizimga kiring.'}, status=status.HTTP_401_UNAUTHORIZED)
+        instance = self.get_object()
+        if instance.reader_id != reader.id:
+            return Response({'detail': 'Ruxsat yo\'q.'}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['post'], url_path='toggle', permission_classes=[AllowAny])
+    def toggle(self, request):
+        """Sevimliga qo'shish/o'chirish (bitta endpoint)."""
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response({'detail': 'Tizimga kiring.'}, status=status.HTTP_401_UNAUTHORIZED)
+        book_id = request.data.get('book')
+        if not book_id:
+            return Response({'detail': 'Kitob tanlanmagan.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not Book.objects.filter(pk=book_id).exists():
+            return Response({'detail': 'Kitob topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+        existing = BookFavourite.objects.filter(reader=reader, book_id=book_id).first()
+        if existing:
+            existing.delete()
+            return Response({'is_favourite': False, 'book': int(book_id)})
+        BookFavourite.objects.create(reader=reader, book_id=book_id)
+        return Response({'is_favourite': True, 'book': int(book_id)}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='ids', permission_classes=[AllowAny])
+    def ids(self, request):
+        """Faqat sevimli kitoblar IDsi — Index sahifasi uchun (yengil)."""
+        reader = _resolve_reader_by_token(request)
+        if reader is None:
+            return Response([])
+        ids = list(BookFavourite.objects.filter(reader=reader).values_list('book_id', flat=True))
+        return Response(ids)
 
 
 class ReaderLibraryCardAdminViewSet(viewsets.ModelViewSet):

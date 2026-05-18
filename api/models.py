@@ -133,3 +133,19 @@ class BookRating(models.Model):
 
     def __str__(self):
         return f"{self.reader.fullname} → {self.book.title}: {self.rating}★"
+
+
+class BookFavourite(models.Model):
+    """Foydalanuvchining sevimli kitoblari (har bir o'quvchi uchun alohida)."""
+    reader = models.ForeignKey(Reader, on_delete=models.CASCADE, related_name='favourites')
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='favourited_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['reader', 'book'], name='unique_reader_book_favourite')
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.reader.fullname} ♥ {self.book.title}"

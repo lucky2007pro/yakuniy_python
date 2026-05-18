@@ -9,6 +9,7 @@ from .views import (
     IssueViewSet,
     ReservationViewSet,
     BookRatingViewSet,
+    BookFavouriteViewSet,
     ReaderLibraryCardAdminViewSet,
     statistics_view,
 )
@@ -22,6 +23,7 @@ router.register(r'readers', ReaderViewSet)
 router.register(r'issues', IssueViewSet)
 router.register(r'reservations', ReservationViewSet)
 router.register(r'ratings', BookRatingViewSet)
+router.register(r'favourites', BookFavouriteViewSet, basename='favourites')
 router.register(r'library-cards-admin', ReaderLibraryCardAdminViewSet, basename='library-cards-admin')
 
 urlpatterns = [
